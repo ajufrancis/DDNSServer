@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import signal
 from ddnsserver import RequestHandler
 from ddnsserver.Config import SCRIPT_NAME, HTTP_SERVER, HTTP_PORT, PID_FILE
 from http.server import HTTPServer
@@ -12,7 +13,17 @@ class Server(object):
     server = None
     pid = None
     
+    def reload(self, signal, frame):
+        print('Führe Neustart durch ...')
+        self.__del__() # HTTP-Server beenden
+        self.__init__() # HTTP-Server neu initialisieren
+    
     def __init__(self):
+        
+        # Signalhandler
+        signal.signal(signal.SIGCONT, self.reload)
+        signal.signal(signal.SIGHUP, self.__del__)
+        
         try:       
 
             # Lockfile
@@ -25,7 +36,7 @@ class Server(object):
                     exit(1)
                 else:
                     print('Kein laufender Prozess mit PID %s gefunden!' % currentPid)
-                    print('Lösche Lockfile %s .' % PID_FILE)
+                    print('Lösche Lockfile %s' % PID_FILE)
                     
                     unlink(PID_FILE)
             
@@ -44,10 +55,10 @@ class Server(object):
             self.server.serve_forever()
             
         except KeyboardInterrupt:
-            print(' empfangen, HTTP-Server wird beendet.')
-            self.server.socket.close()
+            print(' Interrupt empfangen, HTTP-Server wird beendet.')
+            exit(0)
     
-    def __del__(self):
+    def __del__(self, signal=None, frame=None):
         
         if self.server != None:
             print('Beende %s' % SCRIPT_NAME)
@@ -58,5 +69,5 @@ class Server(object):
             unlink(PID_FILE)
 
 if __name__ == "__main__":
-    Server()
-    
+        
+    server = Server()

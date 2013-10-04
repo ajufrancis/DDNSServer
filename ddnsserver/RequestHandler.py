@@ -1,9 +1,13 @@
 from http.server import BaseHTTPRequestHandler
 from base64 import b64decode
 from hashlib import md5
-from ddnsserver import DBHandler
+from ddnsserver import DBHandler, DNSupdater
+from urllib.parse import parse_qs
 
 class RequestHandler(BaseHTTPRequestHandler):
+    
+    db = DBHandler()
+    dns = DNSupdater()
                 
     def response(self, code, msg):
         # header setzen
@@ -36,20 +40,60 @@ class RequestHandler(BaseHTTPRequestHandler):
                 username, password = auth.split(':')
                 password = md5(password.encode()).hexdigest()
                                 
-                # 'DB' abfragen
+                # AbfrageHORRORRRRRRRRRRR
                 try:
+                    ''' 
+                        Erste Hürde
+                        
+                        * gibts den User?
+                        * stimmt das Passwort?
+                        * Abuse-Status in Ordnung?
+                    '''
                     
-                    pass
-                      
-                except IOError as ioerr:
-                    print(str(ioerr))
-                    self.response(400, '911')
+                    self.db.userExists(username)
+                    self.db.passwordMatch(username, password)
+                    self.db.checkAbuse(username)
+                    
+                    '''
+                        Zweite Hürde
+                    '''
+                    vars = parse_qs(self.path.replace('/update?', ''))
+                    
+                    if 'hostname' and 'myip' not in vars:
+                        raise UserWarning('badparam')
+                   
+                    # @TODO REGEX HOSTNAME
+                    # @TODO REGEX IP 
+                    
+                    hostname = vars['hostname'][0]
+                    ip = vars['myip'][0]
+                    
+                    if hostname != self.db.getHostname(username):
+                        raise UserWarning('nohost')
+                    
+                    oldIP = self.db.getIP(username)
+                    
+                    if ip == oldIP:
+                        self.db.incrementAbuse(username)
+                        raise UserWarning('abuse')
+                    
+                    if self.db.updateIP(username, ip):
+                        if self.dns.performUpdate(hostname, ip):
+                            self.response(200, 'good')
+                        else:
+                            self.db.updateIP(username, oldIP)
+                            raise UserWarning('dnserror')
+                    else:
+                        raise UserWarning('dberror')
+                    
+                    ''' Änderrungen speichern '''
+                    self.db.commit()
+
+                except UserWarning as uw:
+                    self.response(400, str(uw))
                 except Exception as ex:
                     print(str(ex))
-                    self.response(400, '4711')
-                
-            '''vars = parse.parse_qs(self.path.replace('/update?', ''))
-            print(vars)'''
+                    self.response(400, '911')
 
         else:
             self.response(400, 'badauth')
